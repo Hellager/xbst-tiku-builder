@@ -7,6 +7,52 @@ import shutil
 import pandas as pd
 import numpy as np
 import re
+import unicodedata
+
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E0-\U0001F1FF"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F600-\U0001F64F"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\U00002600-\U000026FF"
+    "\U00002700-\U000027BF"
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _sanitize_stem(stem: str) -> str:
+    s = str(stem)
+    s = s.replace("\u200d", "").replace("\ufe0f", "")
+    s = s.replace("√", "")
+    s = _EMOJI_RE.sub("", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "So")
+    s = re.sub(r"^\s*[\(（\[【]?\s*\d{1,3}\s*[\)）\]】]?\s*[\.\-、_ ]*", "", s)
+    s = re.sub(r"[\s\-_]+", " ", s).strip()
+    s = s.strip(" .-_")
+    return s or "output"
+
+
+def _ensure_unique_path(file_path: str) -> str:
+    if not os.path.exists(file_path):
+        return file_path
+
+    base_dir = os.path.dirname(file_path)
+    base_name = os.path.basename(file_path)
+    stem, ext = os.path.splitext(base_name)
+    n = 2
+    while True:
+        candidate = os.path.join(base_dir, f"{stem}_{n}{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+        n += 1
 
 
 def copy_and_convert_files(input_folder, output_folder):
@@ -21,25 +67,31 @@ def copy_and_convert_files(input_folder, output_folder):
     for root, dirs, files in os.walk(input_folder):
         for filename in files:
             input_file = os.path.join(root, filename)
-            output_file = os.path.join(output_folder, os.path.relpath(input_file, input_folder))
+            lower = filename.lower()
+
+            if lower.endswith(".xls") and not lower.endswith(".xlsx"):
+                xlsx_sibling = os.path.splitext(input_file)[0] + ".xlsx"
+                if os.path.exists(xlsx_sibling):
+                    continue
+            elif not lower.endswith(".xlsx"):
+                continue
+
             total_files += 1
 
-            # 检查文件后缀
-            if filename.endswith('.xlsx'):
-                # 直接复制 xlsx 文件
-                os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            rel_dir = os.path.relpath(root, input_folder)
+            output_dir = output_folder if rel_dir == "." else os.path.join(output_folder, rel_dir)
+            os.makedirs(output_dir, exist_ok=True)
+
+            stem = _sanitize_stem(os.path.splitext(filename)[0])
+            output_file = os.path.join(output_dir, f"{stem}.xlsx")
+            output_file = _ensure_unique_path(output_file)
+
+            if lower.endswith(".xlsx"):
                 shutil.copy(input_file, output_file)
                 copied_files += 1
-            elif filename.endswith('.xls'):
-                # 若同目录已有同名 .xlsx，跳过（优先使用 .xlsx）
-                xlsx_sibling = os.path.splitext(input_file)[0] + '.xlsx'
-                if os.path.exists(xlsx_sibling):
-                    total_files -= 1
-                    continue
-                # 读取 xls 文件内容,并保存为 xlsx 文件
-                os.makedirs(os.path.dirname(output_file), exist_ok=True)
-                df = pd.read_excel(input_file, engine='xlrd')
-                df.to_excel(output_file, index=False, engine='openpyxl')
+            else:
+                df = pd.read_excel(input_file, engine="xlrd")
+                df.to_excel(output_file, index=False, engine="openpyxl")
                 converted_files += 1
 
     print(f"总共处理了 {total_files} 个文件")
