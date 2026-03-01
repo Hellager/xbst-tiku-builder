@@ -17,10 +17,13 @@ def convert_xls_to_xlsx(file_path: Union[str, bytes, PathLike[str], PathLike[byt
         df = pd.read_excel(file_path, engine='xlrd')
 
         # 将标题行数据插入到 DataFrame 的第一行
-        if len(df) > 0 and all(df.iloc[0] == title_row):
-            # 如果第一行数据与标题行数据相同,则不需要插入
-            pass
-        else:
+        already_has_header = (
+            title_row
+            and len(df) > 0
+            and len(df.columns) == len(title_row)
+            and all(df.iloc[0] == title_row)
+        )
+        if not already_has_header and title_row:
             df.loc[-1] = title_row
             df.index = df.index + 1
             df = df.sort_index()
@@ -41,6 +44,11 @@ def find_title_rows(folder_path):
         for file in files:
             # 筛选Excel文件
             if file.lower().endswith(('.xls', '.xlsx')):
+                # 若是 .xls 且同目录已有同名 .xlsx，跳过（优先使用 .xlsx）
+                if file.lower().endswith('.xls') and not file.lower().endswith('.xlsx'):
+                    xlsx_sibling = os.path.splitext(os.path.join(root, file))[0] + '.xlsx'
+                    if os.path.exists(xlsx_sibling):
+                        continue
                 file_path = os.path.join(root, file)
                 try:
                     # 检查是否存在同名 xlsx 文件
@@ -57,10 +65,8 @@ def find_title_rows(folder_path):
                         df = pd.read_excel(file_path, header=None, engine='xlrd')
                         title_row = []
                         for _, row in df.iterrows():
-                            # 检查第一列并去除前后空格
-                            first_col = str(row[0]).strip() if pd.notna(row[0]) else ""
-                            if first_col == "序号":
-                                # 处理整行数据并格式化为字符串
+                            row_values = [str(v).strip() if pd.notna(v) else "" for v in row]
+                            if "序号" in row_values or ("题目名称" in row_values and "答案" in row_values):
                                 title_row = row.fillna("").astype(str).tolist()
                                 break
                         new_file_path = convert_xls_to_xlsx(file_path, output_path, title_row)
@@ -69,13 +75,12 @@ def find_title_rows(folder_path):
 
                     # 遍历所有行
                     for _, row in df.iterrows():
-                        # 检查第一列并去除前后空格
-                        first_col = str(row[0]).strip() if pd.notna(row[0]) else ""
-                        if first_col == "序号":
-                            # 处理整行数据并格式化为字符串
+                        row_values = [str(v).strip() if pd.notna(v) else "" for v in row]
+                        if "序号" in row_values or ("题目名称" in row_values and "答案" in row_values):
                             title_row = row.fillna("").astype(str).tolist()
                             title_str = ", ".join(title_row)
                             title_info[file_path] = title_str
+                            break
                             # print(f"{rel_path} - {title_str}")
                 except Exception as e:
                     print(f"【错误】处理文件 {file_path} 时发生异常：{str(e)}")

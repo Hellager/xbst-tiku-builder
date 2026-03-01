@@ -173,3 +173,5 @@ cython_debug/
 # Custom ignores
 output/
 raw/
+.claude/
+.idea/

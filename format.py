@@ -31,6 +31,11 @@ def copy_and_convert_files(input_folder, output_folder):
                 shutil.copy(input_file, output_file)
                 copied_files += 1
             elif filename.endswith('.xls'):
+                # 若同目录已有同名 .xlsx，跳过（优先使用 .xlsx）
+                xlsx_sibling = os.path.splitext(input_file)[0] + '.xlsx'
+                if os.path.exists(xlsx_sibling):
+                    total_files -= 1
+                    continue
                 # 读取 xls 文件内容,并保存为 xlsx 文件
                 os.makedirs(os.path.dirname(output_file), exist_ok=True)
                 df = pd.read_excel(input_file, engine='xlrd')
@@ -87,10 +92,11 @@ def build_formatted_files(output_folder):
                     # 读取Excel，不自动识别表头
                     df = pd.read_excel(file_path, header=None, engine="openpyxl", dtype=str)
 
-                    # 寻找列名所在行（含'序号'的行）
+                    # 寻找列名所在行（含'序号'或同时含'题目名称'和'答案'的行）
                     header_row = None
                     for i, row in df.iterrows():
-                        if '序号' in row.values:
+                        row_vals = [str(v).strip() for v in row.values]
+                        if '序号' in row_vals or ('题目名称' in row_vals and '答案' in row_vals):
                             header_row = i
                             break
                     if header_row is None:
